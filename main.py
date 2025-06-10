@@ -1,0 +1,169 @@
+# Required imports
+import osmnx as ox
+import geopandas as gpd
+import pandas as pd
+import networkx as nx
+from shapely.geometry import Point
+from itertools import combinations
+import folium
+from sklearn.cluster import DBSCAN
+from geopy.distance import geodesic
+
+
+print("Step 1: Getting graph")
+
+# Step 1: Set location and download road graph
+place = "Downtown Ottawa, Ontario, Canada"
+G = ox.graph_from_point((45.4215, -75.6972), dist=1500, network_type="drive")
+nodes, _ = ox.graph_to_gdfs(G)
+
+print("Step2")
+# Step 2: Get traffic light features
+tags = {"highway": "traffic_signals"}
+traffic_lights = ox.features_from_point((45.4215, -75.6972), dist=1500, tags=tags)
+traffic_lights = traffic_lights.to_crs(epsg=32617)
+traffic_lights["x"] = traffic_lights.geometry.x
+traffic_lights["y"] = traffic_lights.geometry.y
+
+print("Step 3")
+# Step 3: Cluster traffic lights into intersection clusters
+coords = traffic_lights[["x", "y"]].values
+clustering = DBSCAN(eps=20, min_samples=1).fit(coords)
+traffic_lights["intersection_cluster"] = clustering.labels_
+
+print("Step 4")
+# Step 4: Compute centroids for each cluster
+cluster_centroids = (
+    traffic_lights.to_crs(epsg=4326)
+    .groupby("intersection_cluster")
+    .geometry.apply(lambda g: g.union_all().centroid)
+    .reset_index()
+)
+cluster_centroids["lat"] = cluster_centroids.geometry.y
+cluster_centroids["lon"] = cluster_centroids.geometry.x
+
+print("Snapping centroids to nearest graph nodes...")
+
+
+print("Step 5")
+# Step 5: Snap each cluster to the nearest graph node
+def safe_nearest_node(row):
+    try:
+        return ox.distance.nearest_nodes(G, row["lon"], row["lat"])
+    except Exception as e:
+        print(f"❌ Failed for cluster {row['intersection_cluster']}: {e}")
+        return None
+
+cluster_centroids["nearest_node"] = cluster_centroids.apply(safe_nearest_node, axis=1)
+
+failed = cluster_centroids[cluster_centroids["nearest_node"].isna()]
+print(f"❌ Failed to snap {len(failed)} cluster(s):")
+print(failed)
+
+print("✅ Cluster centroids calculated.")
+print("Number of clusters:", len(cluster_centroids))
+print(cluster_centroids.head())
+
+
+print("Step 6")
+# Step 6: Compute route distances between cluster pairs
+""" cluster_pairs = list(combinations(cluster_centroids["intersection_cluster"], 2))
+node_lookup = dict(zip(cluster_centroids["intersection_cluster"], cluster_centroids["nearest_node"]))
+
+valid_route_violations = []
+for c1, c2 in cluster_pairs:
+    try:
+        node1 = node_lookup[c1]
+        node2 = node_lookup[c2]
+        if node1 == node2:
+            continue
+        distance = nx.shortest_path_length(G, node1, node2, weight="length")
+        if distance < 200:
+            valid_route_violations.append({
+                "from_cluster": c1,
+                "to_cluster": c2,
+                "road_distance_m": round(distance, 2)
+            })
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        continue
+
+route_violation_df = pd.DataFrame(valid_route_violations)
+print("\u2705 Total route-based violating cluster pairs:", len(route_violation_df)) """
+
+# Build a quick lookup for lat/lon
+latlon_lookup = cluster_centroids.set_index("intersection_cluster")[["lat", "lon"]].to_dict("index")
+
+# Step 6.1: Filter pairs using fast geodesic check
+cluster_ids = cluster_centroids["intersection_cluster"].tolist()
+close_pairs = []
+for c1, c2 in combinations(cluster_ids, 2):
+    loc1 = latlon_lookup[c1]
+    loc2 = latlon_lookup[c2]
+    if geodesic((loc1["lat"], loc1["lon"]), (loc2["lat"], loc2["lon"])).meters < 300:
+        close_pairs.append((c1, c2))
+
+print(f"✅ Found {len(close_pairs)} pairs under 300m geodesic distance")
+
+# Step 6.2: Now compute road distances on filtered pairs
+node_lookup = dict(zip(cluster_centroids["intersection_cluster"], cluster_centroids["nearest_node"]))
+valid_route_violations = []
+
+for c1, c2 in close_pairs:
+    try:
+        node1 = node_lookup[c1]
+        node2 = node_lookup[c2]
+        if node1 == node2:
+            continue
+        distance = nx.shortest_path_length(G, node1, node2, weight="length")
+        if distance < 300:
+            valid_route_violations.append({
+                "from_cluster": c1,
+                "to_cluster": c2,
+                "road_distance_m": round(distance, 2)
+            })
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        continue
+
+route_violation_df = pd.DataFrame(valid_route_violations)
+print("✅ Finished route distance checks.")
+print("🚨 Total route-based violating cluster pairs:", len(route_violation_df))
+
+print("stp 7")
+# Step 7: Add coordinates for mapping
+def get_coords(cluster_id):
+    row = cluster_centroids[cluster_centroids["intersection_cluster"] == cluster_id]
+    return row["lat"].values[0], row["lon"].values[0]
+
+route_violation_df[["from_lat", "from_lon"]] = route_violation_df["from_cluster"].apply(lambda x: pd.Series(get_coords(x)))
+route_violation_df[["to_lat", "to_lon"]] = route_violation_df["to_cluster"].apply(lambda x: pd.Series(get_coords(x)))
+
+print("step 8")
+# Step 8: Plot the results on a folium map
+map_center = [cluster_centroids["lat"].mean(), cluster_centroids["lon"].mean()]
+m = folium.Map(location=map_center, zoom_start=13)
+
+# Add traffic lights
+traffic_lights_latlon = traffic_lights.to_crs(epsg=4326)
+for _, row in traffic_lights_latlon.iterrows():
+    folium.CircleMarker(
+        location=[row.geometry.y, row.geometry.x],
+        radius=3,
+        color="black",
+        fill=True,
+        fill_color="blue" if row["intersection_cluster"] in route_violation_df["from_cluster"].values or row["intersection_cluster"] in route_violation_df["to_cluster"].values else "gray",
+        fill_opacity=0.7
+    ).add_to(m)
+
+# Add violation lines
+for _, row in route_violation_df.iterrows():
+    folium.PolyLine(
+        [[row["from_lat"], row["from_lon"]], [row["to_lat"], row["to_lon"]]],
+        color="red",
+        weight=3,
+        opacity=0.7,
+        tooltip=f"{row['road_distance_m']} m"
+    ).add_to(m)
+
+# Save map
+m.save("ottawa_route_violation_map.html")
+print("Map saved")
