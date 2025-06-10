@@ -16,10 +16,10 @@
 
 ▶️ Running the Script
 Make sure you're inside the traffic-light folder:
-(Ctrl + Shift + P) Open Command Palette
-Type  `Python: Select Interpreter`
-Select `traffic-geo`
-Click on it to select the interpreter
-`python main.py`
+- (Ctrl + Shift + P) Open Command Palette
+- Type  `Python: Select Interpreter`
+- Select `traffic-geo`
+- Click on it to select the interpreter
+- `python main.py` in the terminal
 
 
