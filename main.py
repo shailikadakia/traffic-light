@@ -19,8 +19,12 @@ G is a graph of drivable streets
 graph_to_gdfs converts graphs nodes (intersections) into a GeoDataFrame
 '''
 
-place = "Downtown Ottawa, Ontario, Canada"
-G = ox.graph_from_point((45.4215, -75.6972), dist=1500, network_type="drive")
+place = "Brampton, Ontario, Canada"
+# Brampton, McVean Rd (43.804943, -79.730859)
+# Downtown Ottawa (45.4215, -75.6972)
+# Brampton, Ebenezer Rd (43.76963535984992, -79.66604852500859)
+coordinates = (43.76963535984992, -79.66604852500859)
+G = ox.graph_from_point(coordinates, dist=1500, network_type="drive")
 nodes, _ = ox.graph_to_gdfs(G)
 
 print("Step2")
@@ -33,7 +37,7 @@ Create new x and y columns. Extract longitude and latitude from geometry column
 DBSCAN doesn't understand geospatial objects but it does understand numerical coordinates 
 '''
 tags = {"highway": "traffic_signals"}
-traffic_lights = ox.features_from_point((45.4215, -75.6972), dist=1500, tags=tags)
+traffic_lights = ox.features_from_point(coordinates, dist=1500, tags=tags)
 traffic_lights = traffic_lights.to_crs(epsg=32617)
 traffic_lights["x"] = traffic_lights.geometry.x
 traffic_lights["y"] = traffic_lights.geometry.y
@@ -211,5 +215,5 @@ for _, row in route_violation_df.iterrows():
             tooltip=f"{row['road_distance_m']} m"
         ).add_to(m)
 # Save map
-m.save("ottawa_route_violation_map.html")
+m.save("brampton_mcvean.html")
 print("Map saved")
