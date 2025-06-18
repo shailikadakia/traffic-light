@@ -9,10 +9,12 @@ import folium # iteractive maps
 from sklearn.cluster import DBSCAN # Clustering algorithm
 from geopy.distance import geodesic # fast geographic distance
 
-
 print("Step 1: Getting graph")
 
 ''' 
+Using osmnx, a road map is made up of nodes (intersections) and edges (roads between nodes)
+The goal is to connect the intersection clusters to this real map G 
+
 Step 1: Set location and download road graph
 graph_from_point sets a 1.5km radius road network
 G is a graph of drivable streets
@@ -79,7 +81,7 @@ print("Snapping centroids to nearest graph nodes...")
 print("Step 5")
 # Step 5: Snap each cluster to the nearest graph node
 '''
-Find the nearest node in the road network for each centroid 
+Given the lat and lon of an intersection cluster, find the nearest road intersection in G  
 Log if any centroids cannot be matched
 '''
 def safe_nearest_node(row):
@@ -126,8 +128,10 @@ route_violation_df = pd.DataFrame(valid_route_violations)
 print("\u2705 Total route-based violating cluster pairs:", len(route_violation_df)) """
 
 '''
-# Step 6.1: Filter pairs using fast geodesic check
-Find pairs of intersections that are within 300 meters
+# Step 6.1: Filter pairs using fast geodesic check 
+Determine if these two intersections are physically close in a straight line
+If yes, continue to the next step
+If no, don't check road distance
 '''
 latlon_lookup = cluster_centroids.set_index("intersection_cluster")[["lat", "lon"]].to_dict("index")
 
@@ -142,8 +146,9 @@ for c1, c2 in combinations(cluster_ids, 2):
 print(f"✅ Found {len(close_pairs)} pairs under 300m geodesic distance")
 
 '''
-Step 6.2: Now compute road distances on filtered pairs
+Step 6.2: Compute road distances on filtered pairs
 For all geodesically-close pairs, compute actual road distance
+Using NetworkX and G, find the shortest drivable path between two nodes and add all the road segments 
 '''
 node_lookup = dict(zip(cluster_centroids["intersection_cluster"], cluster_centroids["nearest_node"]))
 valid_route_violations = []
@@ -174,7 +179,7 @@ print("🚨 Total route-based violating cluster pairs:", len(route_violation_df)
 print("stp 7")
 '''
 Step 7: Add coordinates for mapping
-Add coordinates for each cluster pair by drawing lines on a map
+Add lat and long coordinates so we can then draw lines on a map
 '''
 def get_coords(cluster_id):
     row = cluster_centroids[cluster_centroids["intersection_cluster"] == cluster_id]
@@ -185,7 +190,7 @@ route_violation_df[["to_lat", "to_lon"]] = route_violation_df["to_cluster"].appl
 
 print("step 8")
 # Step 8: Plot the results on a folium map
-map_center = [cluster_centroids["lat"].mean(), cluster_centroids["lon"].mean()]
+map_center = [cluster_centroids["lat"].mean(), cluster_centroids["lon"].mean()] # find the center of the data on the map 
 m = folium.Map(location=map_center, zoom_start=13)
 
 # Add traffic lights
