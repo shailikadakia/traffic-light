@@ -1,5 +1,34 @@
 from tkinter import *
 from tkinter import ttk
+import re
+from main import run_violation_analysis
+
+
+def search_results():
+    city_input = city.get()
+    radius_input = float(radius.get())
+    latitude_input = float(latitude.get())
+    longitude_input = float(longitude.get())
+    violating_distance_input = float(violating_distance.get())
+
+    run_violation_analysis(city_input, radius_input, latitude_input, longitude_input, violating_distance_input)
+
+def validate_city():
+  print('validating city')
+
+
+def validate_latitude():
+  print('validating latitude')
+
+
+def validate_longtitude():
+  print('validating longitude')
+
+def validate_radius():
+  print('validating radius')
+
+def validate_distance():
+  print('validating distance')
 
 root = Tk()
 root.title("Traffic Light Violations App")
@@ -51,6 +80,9 @@ ttk.Entry(mainframe, textvariable=radius).grid(column=1, row=2, sticky="ew")
 Label(mainframe, text="Distance to check between traffic lights:").grid(column=2, row=2, columnspan=2, sticky="e", padx=(10, 10))
 violating_distance = StringVar()
 ttk.Entry(mainframe, textvariable=violating_distance).grid(column=4, row=2, columnspan=2, sticky="ew")
+
+search_button = ttk.Button(mainframe, text="Search", command = search_results)
+search_button.grid(column=5, row=3, sticky="ew", padx=(10, 0), columnspan=1)
 
 root.mainloop()
 
