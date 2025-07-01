@@ -1,7 +1,9 @@
+'''
 from tkinter import *
 from tkinter import ttk
 import re
 from main import run_violation_analysis
+import tkintermapview
 
 
 def search_results():
@@ -86,4 +88,6 @@ search_button.grid(column=5, row=3, sticky="ew", padx=(10, 0), columnspan=1)
 
 root.mainloop()
 
+
+'''
 
