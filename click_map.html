@@ -1,0 +1,58 @@
+# click_map.html (save this alongside your Python files)
+# This lets users click on a map, drop a pin, and save lat/lon to a local file
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pick a Location</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
+    #confirmBtn { position: absolute; top: 10px; left: 10px; z-index: 1000; }
+  </style>
+</head>
+<body>
+  <button id="confirmBtn">Confirm Location</button>
+  <div id="map"></div>
+
+  <script>
+    var map = L.map('map').setView([45.4215, -75.6972], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    let selectedMarker = null;
+    let selectedCoords = null;
+
+    map.on('click', function(e) {
+      if (selectedMarker) {
+        map.removeLayer(selectedMarker);
+      }
+      selectedCoords = e.latlng;
+      selectedMarker = L.marker(e.latlng).addTo(map).bindPopup("Selected").openPopup();
+    });
+
+    document.getElementById('confirmBtn').onclick = function() {
+      fetch('http://localhost:5000/save_coordinates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat: selectedCoords.lat, lng: selectedCoords.lng })
+      })
+      .then(response => response.json())
+      .then(data => {
+        console.log("✅ Coordinates saved", data);
+        alert("✅ Location saved! You can return to the app.");
+      })
+      .catch(error => {
+        console.error("❌ Error saving coordinates:", error);
+        alert("❌ Failed to save location. Is the server running?");
+      });
+    }
+  </script>
+</body>
+</html>

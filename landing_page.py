@@ -2,16 +2,17 @@ from tkinter import *
 from tkinter import ttk
 import re
 from main import run_violation_analysis
+from tkinterhtml import HtmlFrame 
+import webbrowser
+import json
+import os
 
 
 def search_results():
-    city_input = city.get()
     radius_input = float(radius.get())
-    latitude_input = float(latitude.get())
-    longitude_input = float(longitude.get())
     violating_distance_input = float(violating_distance.get())
 
-    run_violation_analysis(city_input, radius_input, latitude_input, longitude_input, violating_distance_input)
+    run_violation_analysis(radius_input, violating_distance_input)
 
 def validate_city():
   print('validating city')
@@ -59,18 +60,24 @@ def on_resize(event):
 
 label.bind("<Configure>", on_resize)
 
-# Row 1
-Label(mainframe, text="City:").grid(column=0, row=1, sticky="e", padx=(0, 10))
-city = StringVar()
-ttk.Entry(mainframe, textvariable=city).grid(column=1, row=1, sticky="ew")
+def show_click_map():
+    if os.path.exists("selected_coords.json"):
+        os.remove("selected_coords.json")
+    webbrowser.open("click_map.html")  # opens in browser
 
-Label(mainframe, text="Latitude:").grid(column=2, row=1, sticky="e", padx=(10, 10))
-latitude = StringVar()
-ttk.Entry(mainframe, textvariable=latitude).grid(column=3, row=1, sticky="ew")
+def check_for_coords_and_run():
+    if os.path.exists("selected_coordinates.json"):
+        with open("selected_coordinates.json.json") as f:
+            data = json.load(f)
+        lat = float(data["lat"])
+        lng = float(data["lng"])
+        run_violation_analysis(city="Selected", radius=float(radius.get()),
+                               latitude=lat, longtitude=lng,
+                               violating_distance=float(violating_distance.get()))
+        webbrowser.open("Selected.html")  # opens generated map
+    else:
+        print("No coordinates selected yet.")
 
-Label(mainframe, text="Longitude:").grid(column=4, row=1, sticky="e", padx=(10, 10))
-longitude = StringVar()
-ttk.Entry(mainframe, textvariable=longitude).grid(column=5, row=1, sticky="ew")
 
 # Row 2
 Label(mainframe, text="Radius:").grid(column=0, row=2, sticky="e", padx=(0, 10))
@@ -81,8 +88,8 @@ Label(mainframe, text="Distance to check between traffic lights:").grid(column=2
 violating_distance = StringVar()
 ttk.Entry(mainframe, textvariable=violating_distance).grid(column=4, row=2, columnspan=2, sticky="ew")
 
-search_button = ttk.Button(mainframe, text="Search", command = search_results)
-search_button.grid(column=5, row=3, sticky="ew", padx=(10, 0), columnspan=1)
+ttk.Button(mainframe, text="Select Location on Map", command=show_click_map).grid(column=1, row=3, columnspan=2, pady=10)
+ttk.Button(mainframe, text="Generate Violation Map", command=check_for_coords_and_run).grid(column=3, row=3, columnspan=2, pady=10)
 
 root.mainloop()
 

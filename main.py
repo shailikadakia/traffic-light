@@ -9,7 +9,7 @@ import folium # iteractive maps
 from sklearn.cluster import DBSCAN # Clustering algorithm
 from geopy.distance import geodesic # fast geographic distance
 
-def run_violation_analysis(city, radius, latitude, longtitude, violating_distance):
+def run_violation_analysis(radius, latitude, longtitude, violating_distance):
     print("Step 1: Getting graph")
 
     ''' 
@@ -221,5 +221,5 @@ def run_violation_analysis(city, radius, latitude, longtitude, violating_distanc
                 tooltip=f"{row['road_distance_m']} m"
             ).add_to(m)
     # Save map
-    m.save(city + ".html")
+    m.save("violations.html")
     print("Map saved")
