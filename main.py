@@ -223,3 +223,4 @@ def run_violation_analysis(city, radius, latitude, longtitude, violating_distanc
     # Save map
     m.save(city + ".html")
     print("Map saved")
+    return len(route_violation_df)

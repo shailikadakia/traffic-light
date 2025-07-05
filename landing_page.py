@@ -1,93 +1,92 @@
-'''
 from tkinter import *
 from tkinter import ttk
-import re
 from main import run_violation_analysis
 import tkintermapview
+from tkinter import messagebox
 
+selected_location = None
 
+def set_marker_event(coords):
+    global selected_location
+    print("Add marker:", coords)
+    if selected_location:
+        selected_location.delete()
+    selected_location = map_widget.set_marker(coords[0], coords[1], text="Selected Location")
+    
+def show_error(message):
+    messagebox.showerror("Error", message)
+  
 def search_results():
-    city_input = city.get()
-    radius_input = float(radius.get())
-    latitude_input = float(latitude.get())
-    longitude_input = float(longitude.get())
-    violating_distance_input = float(violating_distance.get())
+    city_input = 'Test'
+    try:
+      radius_input = float(radius.get())
+      violating_distance_input = float(violating_distance.get())
+    except ValueError:
+        show_error("Please entry numeric values for radius and distance first")
+    
+    if not selected_location:
+        show_error("Please place a marker on the map first")
 
-    run_violation_analysis(city_input, radius_input, latitude_input, longitude_input, violating_distance_input)
+    if map_widget.get_position():
+        latitude_input = map_widget.get_position()[0]
+        longitude_input = map_widget.get_position()[1]
+        try:
+          violation_count = run_violation_analysis(city_input, radius_input, latitude_input, longitude_input, violating_distance_input)
 
-def validate_city():
-  print('validating city')
+          if violation_count == 0:
+              messagebox.showinfo("No violationns", "There are no violations under the given parameters")
+          else: 
+            messagebox.showinfo("Violations Found", f"{violation_count} violations found and mapped.")
 
-
-def validate_latitude():
-  print('validating latitude')
-
-
-def validate_longtitude():
-  print('validating longitude')
-
-def validate_radius():
-  print('validating radius')
-
-def validate_distance():
-  print('validating distance')
+        except Exception as e:
+            print("Error occured")
+            show_error(str(e))
 
 root = Tk()
 root.title("Traffic Light Violations App")
-root.geometry("1024x768")  # Start big enough to fit everything
+root.geometry("1024x768")
 
-# Allow root window to expand
 root.columnconfigure(0, weight=1)
 root.rowconfigure(0, weight=1)
 
-# Main frame
 mainframe = Frame(root, padx=20, pady=20)
 mainframe.grid(column=0, row=0, sticky="nsew")
 
-# Allow columns 1 and 3 to stretch
-mainframe.columnconfigure(1, weight=1)
-mainframe.columnconfigure(3, weight=1)
-mainframe.columnconfigure(5, weight=1)
+mainframe.columnconfigure(0, weight=1)
+mainframe.rowconfigure(2, weight=1)  # Make map area expandable
 
 # Instructions
 label = Label(mainframe,
-              text="Instructions: This is an app to view traffic light violations in a city.",
-              justify="left", anchor="w", font=("Helvetica", 14))
-label.grid(column=0, row=0, columnspan=6, sticky="ew", pady=(0, 20))
+              text="Instructions: Click on the map to drop a pin. Then enter radius and violation distance below.",
+              font=("Helvetica", 14), anchor="w", justify="left")
+label.grid(column=0, row=0, sticky="ew", pady=(0, 10))
 
-# Wrapping
-def on_resize(event):
-    label.config(wraplength=event.width - 40)
+# Top Inputs
+topframe = Frame(mainframe)
+topframe.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+topframe.columnconfigure(1, weight=1)
 
-label.bind("<Configure>", on_resize)
-
-# Row 1
-Label(mainframe, text="City:").grid(column=0, row=1, sticky="e", padx=(0, 10))
-city = StringVar()
-ttk.Entry(mainframe, textvariable=city).grid(column=1, row=1, sticky="ew")
-
-Label(mainframe, text="Latitude:").grid(column=2, row=1, sticky="e", padx=(10, 10))
-latitude = StringVar()
-ttk.Entry(mainframe, textvariable=latitude).grid(column=3, row=1, sticky="ew")
-
-Label(mainframe, text="Longitude:").grid(column=4, row=1, sticky="e", padx=(10, 10))
-longitude = StringVar()
-ttk.Entry(mainframe, textvariable=longitude).grid(column=5, row=1, sticky="ew")
-
-# Row 2
-Label(mainframe, text="Radius:").grid(column=0, row=2, sticky="e", padx=(0, 10))
+Label(topframe, text="Radius:").grid(row=0, column=0, sticky="e")
 radius = StringVar()
-ttk.Entry(mainframe, textvariable=radius).grid(column=1, row=2, sticky="ew")
+ttk.Entry(topframe, textvariable=radius, width=10).grid(row=0, column=1)
 
-Label(mainframe, text="Distance to check between traffic lights:").grid(column=2, row=2, columnspan=2, sticky="e", padx=(10, 10))
+Label(topframe, text="Distance Between Lights:").grid(row=0, column=2, sticky="e", padx=(10, 0))
 violating_distance = StringVar()
-ttk.Entry(mainframe, textvariable=violating_distance).grid(column=4, row=2, columnspan=2, sticky="ew")
+ttk.Entry(topframe, textvariable=violating_distance, width=10).grid(row=0, column=3)
 
-search_button = ttk.Button(mainframe, text="Search", command = search_results)
-search_button.grid(column=5, row=3, sticky="ew", padx=(10, 0), columnspan=1)
+ttk.Button(topframe, text="Search", command=search_results).grid(row=0, column=4, padx=(10, 0))
 
+# Map
+mapframe = LabelFrame(mainframe)
+mapframe.grid(row=2, column=0, sticky="nsew")
+
+map_widget = tkintermapview.TkinterMapView(mapframe, width=800, height=600, corner_radius=0)
+map_widget.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
+map_widget.set_position(43.7315, -79.7624)
+map_widget.set_zoom(10)
+map_widget.pack(fill=BOTH, expand=True)
+
+map_widget.add_right_click_menu_command(label="Add Marker Here",
+                                        command=set_marker_event,
+                                        pass_coords=True)
 root.mainloop()
-
-
-'''
-
