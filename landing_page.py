@@ -5,7 +5,7 @@ import tkintermapview
 from tkinter import messagebox
 
 selected_location = None
-
+overlay_elements = []
 def set_marker_event(coords):
     global selected_location
     print("Add marker:", coords)
@@ -23,24 +23,63 @@ def search_results():
       violating_distance_input = float(violating_distance.get())
     except ValueError:
         show_error("Please entry numeric values for radius and distance first")
+        return
     
     if not selected_location:
         show_error("Please place a marker on the map first")
+        return
 
     if map_widget.get_position():
         latitude_input = map_widget.get_position()[0]
         longitude_input = map_widget.get_position()[1]
         try:
-          violation_count = run_violation_analysis(city_input, radius_input, latitude_input, longitude_input, violating_distance_input)
+          route_violation_df, paths_by_pair, traffic_lights_latlon, cluster_centroids, G = run_violation_analysis(city_input, radius_input, latitude_input, longitude_input, violating_distance_input)
 
-          if violation_count == 0:
+          for item in overlay_elements:
+              item.delete()
+          overlay_elements.clear()
+
+          if route_violation_df.empty:
               messagebox.showinfo("No violationns", "There are no violations under the given parameters")
-          else: 
-            messagebox.showinfo("Violations Found", f"{violation_count} violations found and mapped.")
+              return
+          
+          violation_clusters = set(route_violation_df["from_cluster"]).union(route_violation_df["to_cluster"])
+          for _, row in traffic_lights_latlon.iterrows():
+            if row["intersection_cluster"] in violation_clusters:
+              marker = map_widget.set_marker(row.geometry.y, row.geometry.x, text="🚦")
+              overlay_elements.append(marker)
+
+          for _, row in route_violation_df.iterrows():
+            c1, c2 = row["from_cluster"], row["to_cluster"]
+            path_nodes = paths_by_pair.get((c1, c2))
+            if path_nodes:
+                coords = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in path_nodes]
+                path = map_widget.set_path(coords)
+                path.tooltip_text = f"{row['road_distance_m']}m"
+                overlay_elements.append(path)
+
+          messagebox.showinfo("Violations Found", f"{len(route_violation_df)} violations found and plotted.")
 
         except Exception as e:
             print("Error occured")
             show_error(str(e))
+
+def reset_map():
+    global selected_location, overlay_elements
+    # Remove overlay paths and markers
+    for item in overlay_elements:
+        item.delete()
+    overlay_elements.clear()
+
+    # Remove user marker
+    if selected_location:
+        selected_location.delete()
+        selected_location = None
+
+    # Reset map position and zoom
+    map_widget.set_position(43.7315, -79.7624)
+    map_widget.set_zoom(10)
+
 
 root = Tk()
 root.title("Traffic Light Violations App")
@@ -75,6 +114,8 @@ violating_distance = StringVar()
 ttk.Entry(topframe, textvariable=violating_distance, width=10).grid(row=0, column=3)
 
 ttk.Button(topframe, text="Search", command=search_results).grid(row=0, column=4, padx=(10, 0))
+ttk.Button(topframe, text="Redo", command=reset_map).grid(row=0, column=5, padx=(10, 0))
+
 
 # Map
 mapframe = LabelFrame(mainframe)

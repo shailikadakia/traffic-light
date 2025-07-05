@@ -144,7 +144,7 @@ def run_violation_analysis(city, radius, latitude, longtitude, violating_distanc
         if geodesic((loc1["lat"], loc1["lon"]), (loc2["lat"], loc2["lon"])).meters < violating_distance:
             close_pairs.append((c1, c2))
 
-    print(f"✅ Found {len(close_pairs)} pairs under 300m geodesic distance")
+    print(f"✅ Found {len(close_pairs)} pairs under {violating_distance} geodesic distance")
 
     '''
     Step 6.2: Compute road distances on filtered pairs
@@ -221,6 +221,6 @@ def run_violation_analysis(city, radius, latitude, longtitude, violating_distanc
                 tooltip=f"{row['road_distance_m']} m"
             ).add_to(m)
     # Save map
-    m.save(city + ".html")
-    print("Map saved")
-    return len(route_violation_df)
+    # m.save(city + ".html")
+    # print("Map saved")
+    return route_violation_df, paths_by_pair, traffic_lights_latlon, cluster_centroids, G
