@@ -33,18 +33,22 @@ def get_place_from_point(lat, lon):
 
 
 # Fetch traffic light locations using OSM tags.
-def get_graph(place=None):
+def get_graph(place=None, point=None, dist=1500):
     if place:
         G = ox.graph_from_place(place, network_type="drive")
+    if point:
+        G = ox.graph_from_point(point, dist=dist, network_type="drive")
     else:
         raise ValueError("You must provide either 'place' or 'point'")
     return G
 
 # Cluster traffic lights into intersection groups (DBSCAN).
-def get_traffic_lights(place=None):
+def get_traffic_lights(place=None, point=None, dist=1500):
     tags = {"highway": "traffic_signals"}
     if place:
         tl = ox.features_from_place(place, tags=tags)
+    if point:
+        tl = ox.features_from_point(point, dist=dist, tags=tags)
     else:
         raise ValueError("You must provide a place")
     return tl.to_crs(epsg=32617)
@@ -308,12 +312,16 @@ def match_and_count_accidents(accidents, flagged, non_flagged):
     return flagged_counts, non_flagged_counts, flagged_matches, non_flagged_matches
 
 
-def run_violation_analysis(place=None, violating_distance=200):
+def run_violation_analysis(city, lat, long, radius, violating_distance):
     print("🛣️ Running violation analysis...")
 
     # Step 1: Get graph + lights
-    G = get_graph(place=place)
-    traffic_lights = get_traffic_lights(place=place)
+    if city == "Ottawa, Ontario, Canada":
+      G = get_graph(place=city)
+      traffic_lights = get_traffic_lights(place=city)
+    else:
+      G = get_graph(point=(lat, long), dist=radius)
+      traffic_lights = get_traffic_lights(point=(lat, long), dist=radius )
 
     # Step 2: Cluster
     traffic_lights = cluster_intersections(traffic_lights)

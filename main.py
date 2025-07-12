@@ -1,140 +1,167 @@
-import json
-import pandas as pd
-import folium
-from folium.plugins import HeatMap
-import matplotlib.pyplot as plt
+from tkinter import *
+from tkinter import ttk
+from analysis_utils import run_violation_analysis
+import tkintermapview
+from tkinter import messagebox
+from analysis_utils import get_place_from_point
+from ottawa_statistical_analysis import run_statistical_analysis
+import zipfile
+import tempfile
+from tkinter import filedialog
 
-from analysis_utils import (
-    get_graph,
-    get_traffic_lights,
-    cluster_intersections,
-    snap_to_nearest_node,
-    compute_violation_pairs,
-    perform_statistical_tests,
-    count_accidents_within_buffer,
-    extract_flagged_intersections,
-    match_and_count_accidents,
-    summarize_flagged_vs_nonflagged,
-    summarize_by_buffer_radius,
-    stratify_by_distance_group,
-    compare_flagged_groups_to_nonflagged,
-    visualize_accident_heatmap,
-    analyze_lighting_conditions
-)
+selected_location = None
+overlay_elements = []
+place = ""
+violations_plotted = False
 
-# --- Step 1: Get Graph and Traffic Light Data --- #
-print("step 1")
-place = "Ottawa, Ontario, Canada"
-G = get_graph(place=place)
-traffic_lights = get_traffic_lights(place=place)
+def set_marker_event(coords):
+    global selected_location
+    print("Add marker:", coords)
+    if selected_location:
+        selected_location.delete()
+    selected_location = map_widget.set_marker(coords[0], coords[1], text="Selected Location")
+    
+def show_error(message):
+    messagebox.showerror("Error", message)
+  
+def search_results():
+    try:
+        radius_input = float(radius.get())
+        violating_distance_input = float(violating_distance.get())
+    except ValueError:
+        show_error("Please enter a numeric value for the minimum distance between traffic lights and radius first.")
+        return
 
-# --- Step 2: Cluster Intersections --- #
-print("step 2")
-traffic_lights = cluster_intersections(traffic_lights)
-traffic_lights.to_file("ottawa_traffic_lights.geojson", driver="GeoJSON")
+    if not selected_location:
+        show_error("Please place a marker on the map first.")
+        return
 
-# --- Step 3: Compute Cluster Centroids --- #
-print('step 3')
-cluster_centroids = (
-    traffic_lights.to_crs(epsg=4326)
-    .groupby("intersection_cluster")
-    .geometry.apply(lambda g: g.union_all().centroid)
-    .reset_index()
-)
-cluster_centroids["lat"] = cluster_centroids.geometry.y
-cluster_centroids["lon"] = cluster_centroids.geometry.x
-cluster_centroids.to_csv("cluster_centroids.csv", index=False)
+    latitude_input = map_widget.get_position()[0]
+    longitude_input = map_widget.get_position()[1]
 
-# --- Step 4: Snap to Nearest Node --- #
-print("step 4")
-cluster_centroids = snap_to_nearest_node(cluster_centroids, G)
+    # Reverse geocode lat/lon to place name
+    global place 
+    place = get_place_from_point(latitude_input, longitude_input)
+    if not place:
+        show_error("Could not determine the place from selected location.")
+        return
 
-# --- Step 5: Compute Violation Pairs --- #
-print("step 5")
-violation_df, paths_by_pair = compute_violation_pairs(cluster_centroids, G)
-violation_df = violation_df[violation_df["road_distance_m"] >= 50].copy()
-violation_df.to_csv("filtered_route_violations_50_200m.csv", index=False)
+    try:
+        # Run violation analysis using place name
+        route_violation_df, paths_by_pair, traffic_lights_latlon, cluster_centroids, flagged, G = run_violation_analysis(
+            lat=latitude_input,
+            long=longitude_input,
+            city = place,
+            radius=radius_input,
+            violating_distance=violating_distance_input,
+        )
 
-# --- Step 6: Map Rendering --- #
-print("strp 6")
-traffic_lights_latlon = traffic_lights.to_crs(epsg=4326)
-map_center = [cluster_centroids["lat"].mean(), cluster_centroids["lon"].mean()]
-m = folium.Map(location=map_center, zoom_start=13)
-for _, row in traffic_lights_latlon.iterrows():
-    folium.CircleMarker(
-        location=[row.geometry.y, row.geometry.x],
-        radius=3,
-        color="black",
-        fill=True,
-        fill_color="blue" if row["intersection_cluster"] in violation_df[["from_cluster", "to_cluster"]].values else "gray",
-        fill_opacity=0.7
-    ).add_to(m)
-for _, row in violation_df.iterrows():
-    path = paths_by_pair.get((row["from_cluster"], row["to_cluster"]))
-    if path:
-        path_coords = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in path]
-        folium.PolyLine(path_coords, color="red", weight=3, opacity=0.7, tooltip=f"{row['road_distance_m']} m").add_to(m)
-m.save("ottawa_map.html")
+        for item in overlay_elements:
+            item.delete()
+        overlay_elements.clear()
 
-# --- Step 7: Extract Flagged Intersections --- #
-print("step 7")
-flagged_intersections = extract_flagged_intersections(violation_df, cluster_centroids)
-flagged_intersections.to_csv("flagged_intersections.csv", index=False)
+        if route_violation_df.empty:
+            messagebox.showinfo("No Violations", "There are no violations under the given parameters.")
+            return
 
-# --- Step 8: Accident Matching and Counting --- #
-print("step 8")
+        violation_clusters = set(route_violation_df["from_cluster"]).union(route_violation_df["to_cluster"])
+        for _, row in traffic_lights_latlon.iterrows():
+            if row["intersection_cluster"] in violation_clusters:
+                marker = map_widget.set_marker(row.geometry.y, row.geometry.x, text="🚦")
+                overlay_elements.append(marker)
 
-with open("config.json") as f:
-    config = json.load(f)
-accidents = pd.read_csv(config["accident_data_path"])
-non_flagged = pd.read_csv(config["non_flagged"])
+        for _, row in route_violation_df.iterrows():
+            c1, c2 = row["from_cluster"], row["to_cluster"]
+            path_nodes = paths_by_pair.get((c1, c2))
+            if path_nodes:
+                coords = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in path_nodes]
+                path = map_widget.set_path(coords)
+                path.tooltip_text = f"{row['road_distance_m']}m"
+                overlay_elements.append(path)
 
-# Match and count
-flagged_counts, non_flagged_counts, flagged_matches, non_flagged_matches = match_and_count_accidents(
-    accidents, flagged_intersections, non_flagged
-)
-flagged_matches.to_csv("accidents_exactly_at_intersections.csv", index=False)
-non_flagged_matches.to_csv("accidents_at_non_flagged_intersections.csv", index=False)
-flagged_counts.to_csv("accident_counts_per_intersection.csv", index=False)
-non_flagged_counts.to_csv("accident_counts_non_flagged.csv", index=False)
+        messagebox.showinfo("Violations Found", f"{len(route_violation_df)} violations found and plotted.")
+        global violations_plotted
+        violations_plotted = True
 
-# --- Step 9: Statistical Testing --- #
-print("step 9")
+    except Exception as e:
+        print("Error occurred:", e)
+        show_error(f"Something went wrong:\n{str(e)}")
 
-stats = perform_statistical_tests(flagged_counts, non_flagged_counts)
-print("\n📊 Statistical Test Results:")
-print(stats)
+def reset_map():
+    global selected_location, overlay_elements, violations_plotted
+    # Remove overlay paths and markers
+    for item in overlay_elements:
+        item.delete()
+    overlay_elements.clear()
 
-# --- Step 10: Buffer Analysis (25/50/100/200m) --- #
-print("step 10")
+    # Remove user marker
+    if selected_location:
+        selected_location.delete()
+        selected_location = None
 
-count_accidents_within_buffer(
-    accidents_df=accidents,
-    intersections_df=flagged_intersections,
-    distances=[25, 50, 100, 200],
-    output_dir=""
-)
+    # Reset map position and zoom
+    map_widget.set_position(43.7315, -79.7624)
+    map_widget.set_zoom(10)
+    violations_plotted = False
 
-# --- Step 11: Create Summary Tables --- #
-print("step 11")
+def check_location():
+    if not violations_plotted:
+        show_error("Please search a place first")
+    elif place != "Ottawa, Ontario, Canada":
+        show_error("Accident data is only available for Ottawa, Ontario, Canada")
+    else: 
+        run_statistical_analysis()
+        
 
-summarize_flagged_vs_nonflagged(config)
-summarize_by_buffer_radius(config)
+root = Tk()
+root.title("Traffic Light Violations App")
+root.geometry("1024x768")
 
-# --- Step 12: Stratified Distance Group Analysis --- #
-print("step 12")
+root.columnconfigure(0, weight=1)
+root.rowconfigure(0, weight=1)
 
-stratify_by_distance_group(config)
+mainframe = Frame(root, padx=20, pady=20)
+mainframe.grid(column=0, row=0, sticky="nsew")
 
-# --- Step 13: Flagged vs Non-Flagged by Distance Group --- #
-print("step 13")
+mainframe.columnconfigure(0, weight=1)
+mainframe.rowconfigure(2, weight=1)  # Make map area expandable
 
-compare_flagged_groups_to_nonflagged(config)
+# Instructions
+label = Label(mainframe,
+              text="Instructions: Click on the map to drop a pin. Then enter distance between traffic lights below.",
+              font=("Helvetica", 14), anchor="w", justify="left")
+label.grid(column=0, row=0, sticky="ew", pady=(0, 10))
 
-# --- Step 14: Heatmap of Accidents and Flagged Intersections --- #
-print("step 14")
-visualize_accident_heatmap(config)
+# Top Inputs
+topframe = Frame(mainframe)
+topframe.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+topframe.columnconfigure(1, weight=1)
 
-# --- Step 15: Lighting Condition Analysis --- #
-print("step 15")
-analyze_lighting_conditions(config)
+Label(topframe, text="Distance Between Lights:").grid(row=0, column=0, sticky="e", padx=(10, 0))
+violating_distance = StringVar()
+ttk.Entry(topframe, textvariable=violating_distance, width=10).grid(row=0, column=1)
+
+Label(topframe, text="Radius").grid(row=0, column=2, sticky="e", padx=(10, 0))
+radius = StringVar()
+ttk.Entry(topframe, textvariable=radius, width=10).grid(row=0, column=3)
+
+ttk.Button(topframe, text="Search", command=search_results).grid(row=0, column=4, padx=(10, 0))
+ttk.Button(topframe, text="Redo", command=reset_map).grid(row=0, column=5, padx=(10, 0))
+ttk.Button(topframe, text="Run stats", command=check_location).grid(row=0, column=6, padx=(10, 0))
+
+
+
+# Map
+mapframe = LabelFrame(mainframe)
+mapframe.grid(row=2, column=0, sticky="nsew")
+
+map_widget = tkintermapview.TkinterMapView(mapframe, width=800, height=600, corner_radius=0)
+map_widget.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
+map_widget.set_position(43.7315, -79.7624)
+map_widget.set_zoom(10)
+map_widget.pack(fill=BOTH, expand=True)
+
+map_widget.add_right_click_menu_command(label="Add Marker Here",
+                                        command=set_marker_event,
+                                        pass_coords=True)
+root.mainloop()
