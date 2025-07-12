@@ -11,24 +11,40 @@ import matplotlib.pyplot as plt
 import folium
 from folium.plugins import HeatMap
 import os
+from geopy.geocoders import Nominatim
+
+from geopy.geocoders import Nominatim
+
+def get_place_from_point(lat, lon):
+    try:
+        geolocator = Nominatim(user_agent="traffic_light_app")
+        location = geolocator.reverse((lat, lon), exactly_one=True)
+        if location and location.raw and "address" in location.raw:
+            address = location.raw["address"]
+            city = address.get("city") or address.get("town") or address.get("village") or address.get("hamlet")
+            state = address.get("state")
+            country = address.get("country")
+            if city and state and country:
+                return f"{city}, {state}, {country}"
+    except Exception as e:
+        print(f"Reverse geocoding failed: {e}")
+    return None
+
+
 
 # Fetch traffic light locations using OSM tags.
-def get_graph(place=None, point=None, radius=None):
-    if point:
-        G = ox.graph_from_point(point, network_type="drive", dist=radius)
-    elif place:
+def get_graph(place=None):
+    if place:
         G = ox.graph_from_place(place, network_type="drive")
     else:
         raise ValueError("You must provide either 'place' or 'point'")
     return G
 
 # Cluster traffic lights into intersection groups (DBSCAN).
-def get_traffic_lights(place=None, point=None, radius=None):
+def get_traffic_lights(place=None):
     tags = {"highway": "traffic_signals"}
     if place:
         tl = ox.features_from_place(place, tags=tags)
-    elif point:
-        tl = ox.features_from_point(point, network_type="drive", dist=radius)
     else:
         raise ValueError("You must provide a place")
     return tl.to_crs(epsg=32617)
@@ -290,3 +306,41 @@ def match_and_count_accidents(accidents, flagged, non_flagged):
     non_flagged_counts["accident_count"] = non_flagged_counts["accident_count"].fillna(0).astype(int)
 
     return flagged_counts, non_flagged_counts, flagged_matches, non_flagged_matches
+
+
+def run_violation_analysis(place=None, violating_distance=200):
+    print("🛣️ Running violation analysis...")
+
+    # Step 1: Get graph + lights
+    G = get_graph(place=place)
+    traffic_lights = get_traffic_lights(place=place)
+
+    # Step 2: Cluster
+    traffic_lights = cluster_intersections(traffic_lights)
+
+    # Step 3: Compute cluster centroids
+    cluster_centroids = (
+        traffic_lights.to_crs(epsg=4326)
+        .groupby("intersection_cluster")
+        .geometry.apply(lambda g: g.union_all().centroid)
+        .reset_index()
+    )
+    cluster_centroids["lat"] = cluster_centroids.geometry.y
+    cluster_centroids["lon"] = cluster_centroids.geometry.x
+
+    # Step 4: Snap
+    cluster_centroids = snap_to_nearest_node(cluster_centroids, G)
+
+    # Step 5: Violation pairs
+    violation_df, paths_by_pair = compute_violation_pairs(cluster_centroids, G, threshold=violating_distance)
+    violation_df = violation_df[violation_df["road_distance_m"] >= 50].copy()
+
+    # Step 6: Map not saved here — optional preview in GUI
+    traffic_lights_latlon = traffic_lights.to_crs(epsg=4326)
+
+    # Step 7: Extract flagged intersections
+    flagged = extract_flagged_intersections(violation_df, cluster_centroids)
+
+    print(f"✅ Analysis complete. {len(violation_df)} violating pairs found.")
+
+    return violation_df, paths_by_pair, traffic_lights_latlon, cluster_centroids, flagged, G
