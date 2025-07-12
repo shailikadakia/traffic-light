@@ -36,7 +36,7 @@ def get_place_from_point(lat, lon):
 def get_graph(place=None, point=None, dist=1500):
     if place:
         G = ox.graph_from_place(place, network_type="drive")
-    if point:
+    elif point:
         G = ox.graph_from_point(point, dist=dist, network_type="drive")
     else:
         raise ValueError("You must provide either 'place' or 'point'")
@@ -47,7 +47,7 @@ def get_traffic_lights(place=None, point=None, dist=1500):
     tags = {"highway": "traffic_signals"}
     if place:
         tl = ox.features_from_place(place, tags=tags)
-    if point:
+    elif point:
         tl = ox.features_from_point(point, dist=dist, tags=tags)
     else:
         raise ValueError("You must provide a place")

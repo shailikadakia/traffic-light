@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import zipfile
 import tempfile
 from tkinter import filedialog
+import os
 
 from analysis_utils import (
     get_graph,
@@ -28,7 +29,7 @@ from analysis_utils import (
 def run_statistical_analysis(save_dir):
     if save_dir is None:
         save_dir = tempfile.mkdtemp()
-        
+
     # --- Step 1: Get Graph and Traffic Light Data --- #
     print("step 1")
     place = "Ottawa, Ontario, Canada"
@@ -38,7 +39,8 @@ def run_statistical_analysis(save_dir):
     # --- Step 2: Cluster Intersections --- #
     print("step 2")
     traffic_lights = cluster_intersections(traffic_lights)
-    traffic_lights.to_file("ottawa_traffic_lights.geojson", driver="GeoJSON")
+    traffic_lights.to_file(os.path.join(save_dir, "ottawa_traffic_lights.geojson"), driver="GeoJSON")
+
 
     # --- Step 3: Compute Cluster Centroids --- #
     print('step 3')
@@ -50,7 +52,8 @@ def run_statistical_analysis(save_dir):
     )
     cluster_centroids["lat"] = cluster_centroids.geometry.y
     cluster_centroids["lon"] = cluster_centroids.geometry.x
-    cluster_centroids.to_csv("cluster_centroids.csv", index=False)
+    cluster_centroids.to_csv(os.path.join(save_dir, "cluster_centroids.csv"), index=False)
+
 
     # --- Step 4: Snap to Nearest Node --- #
     print("step 4")
@@ -60,7 +63,8 @@ def run_statistical_analysis(save_dir):
     print("step 5")
     violation_df, paths_by_pair = compute_violation_pairs(cluster_centroids, G)
     violation_df = violation_df[violation_df["road_distance_m"] >= 50].copy()
-    violation_df.to_csv("filtered_route_violations_50_200m.csv", index=False)
+    violation_df.to_csv(os.path.join(save_dir, "filtered_route_violations_50_200m.csv"), index=False)
+
 
     # --- Step 6: Map Rendering --- #
     print("strp 6")
@@ -81,12 +85,12 @@ def run_statistical_analysis(save_dir):
         if path:
             path_coords = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in path]
             folium.PolyLine(path_coords, color="red", weight=3, opacity=0.7, tooltip=f"{row['road_distance_m']} m").add_to(m)
-    m.save("ottawa_map.html")
+    m.save(os.path.join(save_dir, "ottawa_map.html"))
 
     # --- Step 7: Extract Flagged Intersections --- #
     print("step 7")
     flagged_intersections = extract_flagged_intersections(violation_df, cluster_centroids)
-    flagged_intersections.to_csv("flagged_intersections.csv", index=False)
+    flagged_intersections.to_csv(os.path.join(save_dir,"flagged_intersections.csv"), index=False)
 
     # --- Step 8: Accident Matching and Counting --- #
     print("step 8")
@@ -100,10 +104,10 @@ def run_statistical_analysis(save_dir):
     flagged_counts, non_flagged_counts, flagged_matches, non_flagged_matches = match_and_count_accidents(
         accidents, flagged_intersections, non_flagged
     )
-    flagged_matches.to_csv("accidents_exactly_at_intersections.csv", index=False)
-    non_flagged_matches.to_csv("accidents_at_non_flagged_intersections.csv", index=False)
-    flagged_counts.to_csv("accident_counts_per_intersection.csv", index=False)
-    non_flagged_counts.to_csv("accident_counts_non_flagged.csv", index=False)
+    flagged_matches.to_csv(os.path.join(save_dir,"accidents_exactly_at_intersections.csv"), index=False)
+    non_flagged_matches.to_csv(os.path.join(save_dir,"accidents_at_non_flagged_intersections.csv"), index=False)
+    flagged_counts.to_csv(os.path.join(save_dir,"accident_counts_per_intersection.csv"), index=False)
+    non_flagged_counts.to_csv(os.path.join(save_dir,"accident_counts_non_flagged.csv"), index=False)
 
     # --- Step 9: Statistical Testing --- #
     print("step 9")

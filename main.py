@@ -5,9 +5,10 @@ import tkintermapview
 from tkinter import messagebox
 from analysis_utils import get_place_from_point
 from ottawa_statistical_analysis import run_statistical_analysis
-import zipfile
 import tempfile
+import zipfile
 from tkinter import filedialog
+import os
 
 selected_location = None
 overlay_elements = []
@@ -104,13 +105,32 @@ def reset_map():
     map_widget.set_zoom(10)
     violations_plotted = False
 
+def zip_output_folder(folder_path, zip_path):
+    with zipfile.ZipFile(zip_path, 'w') as zf:
+        for root, _, files in os.walk(folder_path):
+            for file in files:
+                full_path = os.path.join(root, file)
+                arcname = os.path.relpath(full_path, folder_path)
+                zf.write(full_path, arcname)
+
 def check_location():
     if not violations_plotted:
         show_error("Please search a place first")
     elif place != "Ottawa, Ontario, Canada":
         show_error("Accident data is only available for Ottawa, Ontario, Canada")
-    else: 
-        run_statistical_analysis()
+    else:
+        temp_dir = tempfile.mkdtemp()
+        run_statistical_analysis(save_dir=temp_dir)
+
+        zip_path = filedialog.asksaveasfilename(
+            defaultextension=".zip",
+            filetypes=[("ZIP files", "*.zip")],
+            title="Save statistical output as..."
+        )
+        if zip_path:
+            zip_output_folder(temp_dir, zip_path)
+            messagebox.showinfo("Export Complete", f"ZIP saved to:\n{zip_path}")
+
         
 
 root = Tk()
