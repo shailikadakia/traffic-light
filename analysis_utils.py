@@ -143,17 +143,19 @@ def count_accidents_within_buffer(accidents_df, intersections_df, distances, eps
         joined = gpd.sjoin(accident_gdf, buffered, predicate="within", how="inner")
         joined["distance_m"] = joined.geometry.distance(joined["geometry_right"])
 
-        joined.to_csv(f"{output_dir}accidents_within_{distance}m_detailed.csv", index=False)
+        # joined.to_csv(f"{output_dir}accidents_within_{distance}m_detailed.csv", index=False)
+        joined.to_csv(os.path.join(output_dir, f"accidents_within_{distance}m_detailed.csv"), index=False)
 
         # Count per intersection
         accident_counts = joined.groupby("intersection_cluster").size().reset_index(name="accident_count")
         summary = intersections_df.merge(accident_counts, on="intersection_cluster", how="left").fillna(0)
         summary["accident_count"] = summary["accident_count"].astype(int)
-        summary.to_csv(f"{output_dir}accidents_within_{distance}m_summary.csv", index=False)
+        # summary.to_csv(f"{output_dir}accidents_within_{distance}m_summary.csv", index=False)
+        summary.to_csv(os.path.join(output_dir, f"accidents_within_{distance}m_summary.csv"), index=False)
 
         print(f"✅ Saved {len(joined)} matches and {len(summary)} summaries for {distance}m buffer.")
 
-def summarize_flagged_vs_nonflagged(config):
+def summarize_flagged_vs_nonflagged(config, save_dir):
     flagged = pd.read_csv(config["flagged"])
     non_flagged = pd.read_csv(config["non_flagged"])
     flagged_matches = pd.read_csv(config["exact"])
@@ -168,10 +170,10 @@ def summarize_flagged_vs_nonflagged(config):
         "# With ≥1 Accident": [(f_count["accident_count"] > 0).sum(), (nf_count["accident_count"] > 0).sum()],
         "Total Accidents": [f_count["accident_count"].sum(), nf_count["accident_count"].sum()]
     })
-    df.to_csv("summary_table_flagged_vs_non_flagged.csv", index=False)
+    df.to_csv(os.path.join(save_dir, "summary_table_flagged_vs_non_flagged.csv"), index=False)
     print("✅ Saved summary_table_flagged_vs_non_flagged.csv")
 
-def summarize_by_buffer_radius(config):
+def summarize_by_buffer_radius(config, save_dir):
     rows = []
     for d in [25, 50, 100, 200]:
         df = pd.read_csv(os.path.join(config["summary_dir"], f"accidents_within_{d}m_summary.csv"))
@@ -180,10 +182,10 @@ def summarize_by_buffer_radius(config):
             "# Intersections With ≥1 Accident": (df["accident_count"] > 0).sum(),
             "Total Accidents": df["accident_count"].sum()
         })
-    pd.DataFrame(rows).to_csv("summary_table_flagged_buffer_distances.csv", index=False)
+    pd.DataFrame(rows).to_csv(os.path.join(save_dir,"summary_table_flagged_buffer_distances.csv"), index=False)
     print("✅ Saved summary_table_flagged_buffer_distances.csv")
 
-def stratify_by_distance_group(config):
+def stratify_by_distance_group(config, save_dir):
     df = pd.read_csv(config["violation_df"])
     bins = [50, 100, 150, 200]
     labels = [f"{bins[i]}–{bins[i+1]}m" for i in range(len(bins)-1)]
@@ -196,17 +198,17 @@ def stratify_by_distance_group(config):
     acc = pd.read_csv(config["flagged_counts"])
     merged = inter.merge(closest, on="intersection_cluster").merge(acc, on=["lat", "lon"], how="left").fillna(0)
     merged["accident_count"] = merged["accident_count"].astype(int)
-    merged.to_csv("flagged_intersections_with_closest_distance_group.csv", index=False)
+    merged.to_csv(os.path.join(save_dir, "flagged_intersections_with_closest_distance_group.csv"), index=False)
     summary = (
         merged.groupby("distance_group")["accident_count"]
         .agg([("# Intersections", "count"), ("Total Accidents", "sum"),
               ("% With ≥1 Accident", lambda x: (x > 0).mean()*100)])
         .round(1).reset_index()
     )
-    summary.to_csv("accident_summary_by_distance_group.csv", index=False)
+    summary.to_csv(os.path.join(save_dir, "accident_summary_by_distance_group.csv"), index=False)
     print("✅ Saved accident_summary_by_distance_group.csv")
 
-def compare_flagged_groups_to_nonflagged(config):
+def compare_flagged_groups_to_nonflagged(config, save_dir):
     flagged = pd.read_csv(config["full"])
     non_flagged = pd.read_csv(config["non_flagged"])
     non_counts = pd.read_csv(config["non_flagged_counts"])
@@ -228,10 +230,10 @@ def compare_flagged_groups_to_nonflagged(config):
             "Non-Flagged n": len(n)
         })
     df = pd.DataFrame(results).sort_values("p-value")
-    df.to_csv("flagged_intersection_vs_non_flagged_intersection_MannWhitneyU.csv", index=False)
+    df.to_csv(os.path.join(save_dir, "flagged_intersection_vs_non_flagged_intersection_MannWhitneyU.csv"), index=False)
     print("✅ Saved flagged_intersection_vs_non_flagged_intersection_MannWhitneyU.csv")
 
-def visualize_accident_heatmap(config):
+def visualize_accident_heatmap(config, save_dir):
     acc = pd.read_csv(config["accident_data_path"])
     acc = acc[acc["Traffic_Control"].astype(str).str.strip() == "01 - Traffic signal"]
     acc = acc.dropna(subset=["Lat", "Long"])
@@ -249,10 +251,10 @@ def visualize_accident_heatmap(config):
             fill_color=color, fill_opacity=0.8,
             popup=f"{r['distance_group']}, Accidents: {r['accident_count']}"
         ).add_to(m)
-    m.save("ottawa_accident_heatmap_with_flagged_intersections.html")
+    m.save(os.path.join(save_dir, "ottawa_accident_heatmap_with_flagged_intersections.html"))
     print("✅ Saved heatmap")
 
-def analyze_lighting_conditions(config):
+def analyze_lighting_conditions(config, save_dir):
     acc = pd.read_csv(config["accident_data_path"])
     acc = acc[acc["Traffic_Control"].astype(str).str.strip() == "01 - Traffic signal"]
     acc["lat_rounded"] = acc["Lat"].round(7)
@@ -276,7 +278,8 @@ def analyze_lighting_conditions(config):
     plt.ylabel("Accident Count")
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.show()
+    # plt.show()
+    plt.savefig(os.path.join(save_dir, "lighting_condition_bar_chart.png"))
 
     chi2, p, dof, expected = chi2_contingency(light_df.astype(int))
     print("\n📊 Chi-Square Test on Lighting Condition Distribution:")

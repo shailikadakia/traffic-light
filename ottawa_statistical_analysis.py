@@ -123,29 +123,29 @@ def run_statistical_analysis(save_dir):
         accidents_df=accidents,
         intersections_df=flagged_intersections,
         distances=[25, 50, 100, 200],
-        output_dir=""
+        output_dir=save_dir
     )
 
     # --- Step 11: Create Summary Tables --- #
     print("step 11")
 
-    summarize_flagged_vs_nonflagged(config)
-    summarize_by_buffer_radius(config)
+    summarize_flagged_vs_nonflagged(config, save_dir)
+    summarize_by_buffer_radius(config, save_dir)
 
     # --- Step 12: Stratified Distance Group Analysis --- #
     print("step 12")
 
-    stratify_by_distance_group(config)
+    stratify_by_distance_group(config, save_dir)
 
     # --- Step 13: Flagged vs Non-Flagged by Distance Group --- #
     print("step 13")
 
-    compare_flagged_groups_to_nonflagged(config)
+    compare_flagged_groups_to_nonflagged(config, save_dir)
 
     # --- Step 14: Heatmap of Accidents and Flagged Intersections --- #
     print("step 14")
-    visualize_accident_heatmap(config)
+    visualize_accident_heatmap(config, save_dir)
 
     # --- Step 15: Lighting Condition Analysis --- #
     print("step 15")
-    analyze_lighting_conditions(config)
+    analyze_lighting_conditions(config, save_dir)
