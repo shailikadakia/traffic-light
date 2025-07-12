@@ -8,18 +8,9 @@ from itertools import combinations # get all pairs of items
 import folium # iteractive maps
 from sklearn.cluster import DBSCAN # Clustering algorithm
 from geopy.distance import geodesic # fast geographic distance
+import json 
 
 print("Step 1: Getting graph")
-
-''' 
-Using osmnx, a road map is made up of nodes (intersections) and edges (roads between nodes)
-The goal is to connect the intersection clusters to this real map G 
-
-Step 1: Set location and download road graph
-graph_from_point sets a 1.5km radius road network
-G is a graph of drivable streets
-graph_to_gdfs converts graphs nodes (intersections) into a GeoDataFrame
-'''
 
 place = "Ottawa, Ontario, Canada"
 # Brampton, McVean Rd (43.804943, -79.730859)
@@ -31,14 +22,6 @@ G = ox.graph_from_place(place, network_type="drive")
 nodes, _ = ox.graph_to_gdfs(G)
 
 print("Step2")
-
-'''
-Step 2: Get traffic light features
-Query OpenStreet to find all points tagged as traffic lights 
-Convert traffic lights to UTMP projection (meters)
-Create new x and y columns. Extract longitude and latitude from geometry column
-DBSCAN doesn't understand geospatial objects but it does understand numerical coordinates 
-'''
 tags = {"highway": "traffic_signals"}
 #traffic_lights = ox.features_from_point(coordinates, dist=1500, tags=tags)
 traffic_lights = ox.features_from_place(place, tags=tags)
@@ -49,12 +32,6 @@ print("Traffic lights found:", len(traffic_lights))
 traffic_lights.to_file("ottawa_traffic_lights.geojson", driver="GeoJSON")
 
 print("Step 3")
-
-'''
-# Step 3: Cluster traffic lights into intersection clusters
-Cluster traffic lights that are within 20 meters of each other
-Each cluster is assumed to represent one intersection
-'''
 coords = traffic_lights[["x", "y"]].values
 clustering = DBSCAN(eps=20, min_samples=1).fit(coords)
 traffic_lights["intersection_cluster"] = clustering.labels_
@@ -62,20 +39,12 @@ traffic_lights["intersection_cluster"] = clustering.labels_
 print("Step 4")
 # Step 4: Compute centroids for each cluster
 
-'''
-Find the center point of each traffic light cluster
-This represents the entire intersection by a single location
-EPSG=4326 switches latitude and longitude 
-'''
 cluster_centroids = (
     traffic_lights.to_crs(epsg=4326)
     .groupby("intersection_cluster")
     .geometry.apply(lambda g: g.union_all().centroid)
     .reset_index()
 )
-'''
-Add longitude and latitude columns
-'''
 cluster_centroids["lat"] = cluster_centroids.geometry.y
 cluster_centroids["lon"] = cluster_centroids.geometry.x
 
@@ -109,35 +78,6 @@ print(cluster_centroids.head())
 
 print("Step 6")
 # Step 6: Compute route distances between cluster pairs
-""" cluster_pairs = list(combinations(cluster_centroids["intersection_cluster"], 2))
-node_lookup = dict(zip(cluster_centroids["intersection_cluster"], cluster_centroids["nearest_node"]))
-
-valid_route_violations = []
-for c1, c2 in cluster_pairs:
-    try:
-        node1 = node_lookup[c1]
-        node2 = node_lookup[c2]
-        if node1 == node2:
-            continue
-        distance = nx.shortest_path_length(G, node1, node2, weight="length")
-        if distance < 200:
-            valid_route_violations.append({
-                "from_cluster": c1,
-                "to_cluster": c2,
-                "road_distance_m": round(distance, 2)
-            })
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
-        continue
-
-route_violation_df = pd.DataFrame(valid_route_violations)
-print("\u2705 Total route-based violating cluster pairs:", len(route_violation_df)) """
-
-'''
-# Step 6.1: Filter pairs using fast geodesic check 
-Determine if these two intersections are physically close in a straight line
-If yes, continue to the next step
-If no, don't check road distance
-'''
 latlon_lookup = cluster_centroids.set_index("intersection_cluster")[["lat", "lon"]].to_dict("index")
 
 cluster_ids = cluster_centroids["intersection_cluster"].tolist()
@@ -150,11 +90,6 @@ for c1, c2 in combinations(cluster_ids, 2):
 
 print(f"✅ Found {len(close_pairs)} pairs under 200m geodesic distance")
 
-'''
-Step 6.2: Compute road distances on filtered pairs
-For all geodesically-close pairs, compute actual road distance
-Using NetworkX and G, find the shortest drivable path between two nodes and add all the road segments 
-'''
 node_lookup = dict(zip(cluster_centroids["intersection_cluster"], cluster_centroids["nearest_node"]))
 valid_route_violations = []
 paths_by_pair = {}
@@ -188,13 +123,9 @@ print(f"✅ Route violations after filtering out <50m: {len(filtered_route_viola
 # Optional: Save for inspection
 filtered_route_violation_df.to_csv("filtered_route_violations_50_200m.csv", index=False)
 
-print(f"⚠️ Total unique flagged intersections (after 50m filter): {len(flagged_intersections)}")
+# print(f"⚠️ Total unique flagged intersections (after 50m filter): {len(flagged_intersections)}")
 
-print("stp 7")
-'''
-Step 7: Add coordinates for mapping
-Add lat and long coordinates so we can then draw lines on a map
-'''
+print("step 7")
 def get_coords(cluster_id):
     row = cluster_centroids[cluster_centroids["intersection_cluster"] == cluster_id]
     return row["lat"].values[0], row["lon"].values[0]
@@ -228,7 +159,7 @@ filtered_route_violation_df[["to_lat", "to_lon"]] = filtered_route_violation_df[
 #        ).add_to(m_close)
 
 # Add red lines for <50m flagged intersections
-for _, row in close_violation_df.iterrows():
+# for _, row in close_violation_df.iterrows():
 #    c1 = row["from_cluster"]
 #    c2 = row["to_cluster"]
 #    path_nodes = paths_by_pair.get((c1, c2))
@@ -311,16 +242,18 @@ print("✅ Saved as 'flagged_intersections.csv'")
 ##### Matching flagged intersections with accident data #####
 import pandas as pd
 
+with open("config.json") as f:
+    config = json.load(f)
 # Load and filter only traffic-light-controlled accidents. This is after the realization that the dataset has a category of what the intersection has: stop sign, traffic light, etc #
-accidents = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/Ottawa_traffic_collision_data.csv")
-
+# accidents = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/Ottawa_traffic_collision_data.csv")
+accidents = pd.read_csv(config["accident_data_path"])
 # Filter to only accidents at traffic-light-controlled intersections
 accidents = accidents[accidents["Traffic_Control"] == "01 - Traffic signal"].copy()
 
 print("✅ Accident records at traffic-signal-controlled intersections:", len(accidents))
 
 # Load both datasets
-flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
+flagged = pd.read_csv(config["flagged"])
 
 # Round both to 7 decimal places for matching precision
 flagged["lat_rounded"] = flagged["lat"].round(7)
@@ -360,8 +293,8 @@ accident_counts.to_csv("accident_counts_per_intersection.csv", index=False)
 import pandas as pd
 
 # Load data
-accidents = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/Ottawa_traffic_collision_data.csv")
-non_flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/non_flagged_intersections.csv")
+accidents = pd.read_csv(config["accident_data_path"])
+non_flagged = pd.read_csv(config["non_flagged"])
 
 # filter accident data to be only traffic light accidents
 accidents.columns = accidents.columns.str.strip()
@@ -407,7 +340,7 @@ import pandas as pd
 from shapely.geometry import Point
 
 # Load data
-accidents_df = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/Ottawa_traffic_collision_data.csv")
+accidents_df = pd.read_csv(config["accident_data_path"])
 accidents_df.columns = accidents_df.columns.str.strip()
 accidents_df["Traffic_Control"] = accidents_df["Traffic_Control"].astype(str).str.strip()
 accidents_df = accidents_df[accidents_df["Traffic_Control"] == "01 - Traffic signal"].copy()
@@ -418,7 +351,7 @@ accident_gdf = gpd.GeoDataFrame(
     crs="EPSG:4326"
 )
 
-intersections_df = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
+intersections_df = pd.read_csv(config["flagged"])
 
 intersections_gdf = gpd.GeoDataFrame(
     intersections_df,
@@ -470,7 +403,7 @@ for distance in [25, 50, 100, 200]:
 import pandas as pd
 
 # Load the flagged intersections list
-all_intersections = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
+all_intersections = pd.read_csv(config["accident_data_path"])
 
 # Distances to analyze
 distances = [25, 50, 100, 200]
@@ -479,9 +412,11 @@ for d in distances:
     print(f"\n🔎 Finding intersections with 0 accidents within {d}m...")
     
     # Load corresponding summary
-    summary_path = f"C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accidents_within_{d}m_summary.csv"
-    summary = pd.read_csv(summary_path)
+    summary_dir = config["summary_dir"]
+    summary_filename = f"accidents_within_{d}m_summary.csv"
+    summary_path = os.path.join(summary_dir, summary_filename)
 
+    summary = pd.read_csv(summary_path)
     # Filter intersections with zero accidents
     zero_accidents = summary[summary["accident_count"] == 0]
 
@@ -495,10 +430,10 @@ for d in distances:
 import pandas as pd
 
 # Load all intersection clusters from original project
-all_clusters = f"C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/cluster_centroids.csv"
+all_clusters = pd.read_csv(config["cluster_centroids"])
 
 # Load flagged clusters (from <200m traffic light pairs)
-flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
+flagged = pd.read_csv(config["flagged"])
 flagged_ids = flagged["intersection_cluster"].unique()
 
 # Use this if you haven't already
@@ -531,10 +466,10 @@ plt.show()
 import pandas as pd
 
 # Load required datasets
-flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
-non_flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/non_flagged_intersections.csv")
-exact_matches_flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accidents_exactly_at_intersections.csv")
-exact_matches_non_flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accidents_at_non_flagged_intersections.csv")
+flagged = pd.read_csv(config["flagged"])
+non_flagged = pd.read_csv(config["non_flagged"])
+exact_matches_flagged = pd.read_csv(config["exact"])
+exact_matches_non_flagged = pd.read_csv(config["exact_non_flagged"])
 
 ### --- Table 1: Flagged vs Non-Flagged Intersections (Exact Match) --- ###
 
@@ -567,9 +502,15 @@ print(table1.to_string(index=False))
 
 distances = [25, 50, 100, 200]
 rows = []
+summary_dir = config["summary_dir"]
 
 for d in distances:
-    summary = pd.read_csv(f"C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accidents_within_{d}m_summary.csv")
+    summary_dir = config["summary_dir"]
+    summary_filename = f"accidents_within_{d}m_summary.csv"
+    summary_path = os.path.join(summary_dir, summary_filename)
+
+
+    summary = pd.read_csv(summary_path)
     count_with_accident = (summary["accident_count"] > 0).sum()
     total_accidents = summary["accident_count"].sum()
     rows.append({
@@ -592,10 +533,10 @@ import pandas as pd
 from scipy.stats import chi2_contingency, mannwhitneyu
 
 ### ---- Load Data ---- ###
-flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
-non_flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/non_flagged_intersections.csv")
-flagged_counts = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accident_counts_per_intersection.csv")
-non_flagged_counts = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accident_counts_non_flagged.csv")
+flagged = pd.read_csv(config["flagged"])
+non_flagged = pd.read_csv(config["non_flagged"])
+flagged_counts = pd.read_csv(config["flagged_counts"])
+non_flagged_counts = pd.read_csv(config["non_flagged_counts"])
 
 ### ---- Prepare for Chi-Square ---- ###
 flagged_with_accident = flagged_counts.shape[0]
@@ -626,10 +567,10 @@ print("Expected frequencies:\n", expected)
 # Merge on (lat, lon) since intersection_cluster is not in accident_counts CSVs
 
 # Load intersection and accident data
-flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
-non_flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/non_flagged_intersections.csv")
-flagged_counts = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accident_counts_per_intersection.csv")
-non_flagged_counts = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accident_counts_non_flagged.csv")
+flagged = pd.read_csv(config["flagged"])
+non_flagged = pd.read_csv(config["non_flagged"])
+flagged_counts = pd.read_csv(config["flagged_counts"])
+non_flagged_counts = pd.read_csv(config["non_flagged_counts"])
 
 ### Merge flagged on lat/lon ###
 flagged_full = flagged.merge(
@@ -659,7 +600,7 @@ print(f"p-value = {p_mannwhitney:.4f}")
 import pandas as pd
 
 # Load data
-violation_df = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/filtered_route_violations_50_200m.csv")
+violation_df = pd.read_csv(config["violation_df"])
 
 # Define distance bins and labels
 bins = [50, 100, 150, 200]
@@ -691,8 +632,8 @@ print("\n✅ Assigned closest distance group per intersection:")
 print(closest_group["distance_group"].value_counts())
 
 # Load intersection coordinates and accident counts
-intersections = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
-accidents = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accident_counts_per_intersection.csv")
+intersections = pd.read_csv(config["flagged"])
+accidents = pd.read_csv(config["flagged_counts"])
 
 # Merge to assign each intersection its closest distance group
 intersections_grouped = intersections.merge(
@@ -779,8 +720,8 @@ print(pairwise_results.sort_values("p-value").round(4))
 ##### would like to check each bucket with the non-flagged intersections #####
 
 # Load data
-non_flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/non_flagged_intersections.csv")
-non_flagged_counts = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/accident_counts_non_flagged.csv")
+non_flagged = pd.read_csv(config["non_flagged"])
+non_flagged_counts = pd.read_csv(config["non_flagged_counts"])
 
 # Ensure clean column names
 non_flagged.columns = non_flagged.columns.str.strip()
@@ -796,7 +737,7 @@ non_flagged_full["accident_count"] = non_flagged_full["accident_count"].astype(i
 
 print("✅ Non-flagged intersections prepared:", len(non_flagged_full))
 
-full = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections_with_closest_distance_group.csv")
+full = pd.read_csv(config["full"])
 
 ##### Run Mann-Whitney for flagged intersection buckets and non-flagged #####
 from scipy.stats import mannwhitneyu
@@ -836,7 +777,7 @@ print("✅ Saved 'flagged_intersection_vs_non_flagged_intersection_MannWhitneyU.
 import pandas as pd
 
 # Load all accident data (with coordinates)
-accidents = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/Ottawa_traffic_collision_data.csv")
+accidents = pd.read_csv(config="accident_data_path")
 
 # Clean up column names
 accidents.columns = accidents.columns.str.strip()
@@ -859,7 +800,7 @@ from folium.plugins import HeatMap
 import pandas as pd
 
 # Load and filter
-accidents = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/Ottawa_traffic_collision_data.csv")
+accidents = pd.read_csv(config["accident_data_path"])
 accidents.columns = accidents.columns.str.strip()
 accidents["Traffic_Control"] = accidents["Traffic_Control"].astype(str).str.strip()
 accidents = accidents[accidents["Traffic_Control"] == "01 - Traffic signal"].copy()
@@ -913,11 +854,11 @@ m.save("ottawa_accident_heatmap_with_flagged_intersections.html")
 print("✅ Saved map as 'ottawa_accident_heatmap_with_flagged_intersections.html'")
 
 ##### any impacts with the light conditions #####
-accidents = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/Ottawa_traffic_collision_data.csv")
+accidents = pd.read_csv(config["accident_data_path"])
 accidents.columns = accidents.columns.str.strip()
 accidents["Traffic_Control"] = accidents["Traffic_Control"].astype(str).str.strip()
 
-flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/flagged_intersections.csv")
+flagged = pd.read_csv(config["flagged"])
 
 # Filter only traffic-signal-controlled accidents
 accidents = accidents[accidents["Traffic_Control"] == "01 - Traffic signal"].copy()
@@ -948,7 +889,7 @@ print(flagged_light_matches["Light"].value_counts())
 
 # Step 3: Compare to non-flagged intersections
 
-non_flagged = pd.read_csv("C:/Users/Shivani Kadakia/Documents/traffic-light-project/traffic-light/non_flagged_intersections.csv")
+non_flagged = pd.read_csv(config["non_flagged"])
 
 non_flagged["lat_rounded"] = non_flagged["lat"].round(7)
 non_flagged["lon_rounded"] = non_flagged["lon"].round(7)

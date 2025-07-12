@@ -1,0 +1,13 @@
+{
+  "accident_data_path": "data/Ottawa_traffic_collision_data.csv",
+  "flagged" : "flagged_intersections.csv",
+  "non_flagged": "non_flagged_intersections.csv",
+  "cluster_centroids": "cluster_centroids.csv",
+  "exact": "accidents_exactly_at_intersections.csv",
+  "exact_non_flagged": "accidents_at_non_flagged_intersections.csv",
+  "summary_dir": "accidents_summary_dir",
+  "flagged_counts": "accident_counts_per_intersection.csv",
+  "non_flagged_counts": "accident_counts_non_flagged.csv",
+  "violation_df": "filtered_route_violations_50_200m.csv",
+  "full": "flagged_intersections_with_closest_distance_group.csv"
+}
