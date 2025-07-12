@@ -38,6 +38,9 @@ conda install -c conda-forge \
   geopy \
   ipykernel -y
 ```
+```bash
+pip install tkintermapview
+```
 
 > ✅ **Note**: `tkinter` is included with most Python distributions. If you encounter errors:
 > - On **macOS**: `brew install python-tk`
